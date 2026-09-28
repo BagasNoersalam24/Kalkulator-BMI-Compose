@@ -1,7 +1,10 @@
 package com.example.bmicompose
 
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -19,9 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.net.URLEncoder
 
 class MainActivity : ComponentActivity() {
-    // Menyambungkan ViewModel (Otak) ke Activity
     private val viewModel: BmiViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,10 +41,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AplikasiBmi(viewModel: BmiViewModel) {
-    // Memantau State dari ViewModel
     val tampilkanTips by viewModel.tampilkanTips.collectAsState()
-
-    // Navigasi sederhana ala Compose
     if (tampilkanTips) {
         LayarTips(onKembali = { viewModel.navigasiKeTips(false) })
     } else {
@@ -53,13 +53,25 @@ fun AplikasiBmi(viewModel: BmiViewModel) {
 fun LayarKalkulator(viewModel: BmiViewModel) {
     val context = LocalContext.current
 
-    // State lokal untuk inputan (karena ini hanya urusan UI saat mengetik)
+    // Membaca data kontak yang tersimpan di HP (SharedPreferences)
+    val sharedPref = context.getSharedPreferences("KontakPref", Context.MODE_PRIVATE)
+    var emailTersimpan by remember { mutableStateOf(sharedPref.getString("EMAIL", "") ?: "") }
+    var waTersimpan by remember { mutableStateOf(sharedPref.getString("WA", "") ?: "") }
+
+    // State lokal untuk inputan Kalkulator
     var umur by remember { mutableStateOf("") }
     var berat by remember { mutableStateOf("") }
     var tinggi by remember { mutableStateOf("") }
     var gender by remember { mutableStateOf("Pria") }
 
-    // Memantau hasil dari ViewModel
+    // State untuk memunculkan Pop-up
+    var tampilkanDialogBagikan by remember { mutableStateOf(false) }
+    var tampilkanDialogDaftar by remember { mutableStateOf(false) }
+
+    // State form pendaftaran kontak sementara
+    var inputEmail by remember { mutableStateOf(emailTersimpan) }
+    var inputWa by remember { mutableStateOf(waTersimpan) }
+
     val hasilBmi by viewModel.bmiResult.collectAsState()
     val warnaHasil by viewModel.warnaHasil.collectAsState()
     val riwayat by viewModel.riwayat.collectAsState()
@@ -71,78 +83,37 @@ fun LayarKalkulator(viewModel: BmiViewModel) {
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Kalkulator BMI ", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text("Kalkulator BMI Pro", fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Text(riwayat, color = Color.Gray, modifier = Modifier.padding(bottom = 16.dp))
 
-        // Pilihan Gender (Radio Buttons)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = gender == "Pria", onClick = { gender = "Pria" },
-                colors = RadioButtonDefaults.colors(
-                    selectedColor = Color(0xFF1E3A8A),
-                    unselectedColor = Color.Gray
-                )
-            )
+            RadioButton(selected = gender == "Pria", onClick = { gender = "Pria" }, colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF1E3A8A)))
             Text("Pria")
-
             Spacer(modifier = Modifier.width(16.dp))
-
-            RadioButton(selected = gender == "Wanita", onClick = { gender = "Wanita" },
-                colors = RadioButtonDefaults.colors(
-                    selectedColor = Color(0xFF1E3A8A),
-                    unselectedColor = Color.Gray
-                )
-            )
+            RadioButton(selected = gender == "Wanita", onClick = { gender = "Wanita" }, colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFE11D48)))
             Text("Wanita")
         }
 
-        // Input Data
-        OutlinedTextField(
-            value = umur, onValueChange = { umur = it },
-            label = { Text("Umur (Tahun)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-        )
-        OutlinedTextField(
-            value = berat, onValueChange = { berat = it },
-            label = { Text("Berat Badan (kg)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-        )
-        OutlinedTextField(
-            value = tinggi, onValueChange = { tinggi = it },
-            label = { Text("Tinggi Badan (cm)") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
-        )
+        OutlinedTextField(value = umur, onValueChange = { umur = it }, label = { Text("Umur (Tahun)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        OutlinedTextField(value = berat, onValueChange = { berat = it }, label = { Text("Berat Badan (kg)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        OutlinedTextField(value = tinggi, onValueChange = { tinggi = it }, label = { Text("Tinggi Badan (cm)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp))
 
-        // Tombol Aksi
         Button(
-            onClick = { if (umur.isBlank() || berat.isBlank() || tinggi.isBlank()) {
-
-                android.widget.Toast.makeText(
-                    context,
-                    "Mohon isi Umur, Berat, dan Tinggi Badan terlebih dahulu!",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
-            } else {
-
-                viewModel.hitungBmi(umur, berat, tinggi, gender, context)
-            }
+            onClick = {
+                if (umur.isBlank() || berat.isBlank() || tinggi.isBlank()) {
+                    Toast.makeText(context, "Mohon isi semua data!", Toast.LENGTH_SHORT).show()
+                } else {
+                    viewModel.hitungBmi(umur, berat, tinggi, gender, context)
+                }
             },
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1E3A8A),
-                    contentColor = Color.White
-            )
-        ){
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3A8A), contentColor = Color.White)
+        ) {
             Text("Hitung BMI")
         }
 
         OutlinedButton(
-            onClick = {
-                umur = ""; berat = ""; tinggi = ""; gender = "Pria"
-                viewModel.resetData()
-            },
+            onClick = { umur = ""; berat = ""; tinggi = ""; gender = "Pria"; viewModel.resetData() },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Ulangi / Hapus")
@@ -150,33 +121,25 @@ fun LayarKalkulator(viewModel: BmiViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // AREA HASIL
         if (hasilBmi.isNotEmpty()) {
             Text(hasilBmi, color = Color(warnaHasil), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-
             Spacer(modifier = Modifier.height(16.dp))
 
+            // TOMBOL BAGIKAN (Satu tombol utama)
             Button(
                 onClick = {
-
-                    val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-
-                        data = android.net.Uri.parse("mailto:")
-
-                        putExtra(Intent.EXTRA_SUBJECT, "Laporan Hasil Cek Kesehatan (BMI)")
-
-                        putExtra(Intent.EXTRA_TEXT, "Halo,\n\nBerikut adalah hasil pengecekan tubuh saya menggunakan Kalkulator BMI Pro:\n\n$hasilBmi\n\nTetap sehat dan semangat!")
-                    }
-
-                    try {
-                        context.startActivity(Intent.createChooser(emailIntent, "Kirim hasil melalui Email..."))
-                    } catch (e: Exception) {
-
-                        android.widget.Toast.makeText(context, "Tidak ada aplikasi Email yang terinstal.", android.widget.Toast.LENGTH_SHORT).show()
+                    // Cek apakah pengguna sudah mendaftarkan kontaknya?
+                    if (emailTersimpan.isEmpty() || waTersimpan.isEmpty()) {
+                        tampilkanDialogDaftar = true // Munculkan pop up daftar kontak
+                    } else {
+                        tampilkanDialogBagikan = true // Munculkan pop up pilihan WA/Email
                     }
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2196F3))
             ) {
-                Text("Kirim ke Email")
+                Text("Bagikan")
             }
 
             Button(
@@ -184,27 +147,99 @@ fun LayarKalkulator(viewModel: BmiViewModel) {
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
             ) {
-                Text("Lihat Tips Kesehatan")
+                Text("Tips Kesehatan")
             }
         }
+    }
+
+    // --- POP UP 1: DAFTAR KONTAK (Hanya muncul jika belum pernah daftar) ---
+    if (tampilkanDialogDaftar) {
+        AlertDialog(
+            onDismissRequest = { tampilkanDialogDaftar = false },
+            title = { Text("Daftar Kontak Pribadi", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Simpan email dan WhatsApp Anda sekali saja untuk menerima laporan kesehatan secara instan.", fontSize = 14.sp, modifier = Modifier.padding(bottom = 16.dp))
+                    OutlinedTextField(value = inputEmail, onValueChange = { inputEmail = it }, label = { Text("Alamat Email Anda") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+                    OutlinedTextField(value = inputWa, onValueChange = { inputWa = it }, label = { Text("No WA (Contoh: 0812...)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone), modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (inputEmail.isNotBlank() && inputWa.isNotBlank()) {
+                        // Simpan permanen ke SharedPreferences
+                        sharedPref.edit().putString("EMAIL", inputEmail).putString("WA", inputWa).apply()
+                        emailTersimpan = inputEmail
+                        waTersimpan = inputWa
+                        tampilkanDialogDaftar = false
+                        tampilkanDialogBagikan = true // Langsung buka pop-up bagikan
+                    } else {
+                        Toast.makeText(context, "Mohon isi keduanya!", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Simpan & Lanjutkan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { tampilkanDialogDaftar = false }) { Text("Batal", color = Color.Gray) }
+            }
+        )
+    }
+
+    // --- POP UP 2: PILIH PLATFORM (Email atau WhatsApp) ---
+    if (tampilkanDialogBagikan) {
+        AlertDialog(
+            onDismissRequest = { tampilkanDialogBagikan = false },
+            title = { Text("Kirim Laporan", fontWeight = FontWeight.Bold) },
+            text = { Text("Kirim hasil BMI ini ke kontak pribadi Anda:") },
+            confirmButton = {
+                // TOMBOL WHATSAPP
+                Button(
+                    onClick = {
+                        var nomorFormat = waTersimpan
+                        if (nomorFormat.startsWith("0")) nomorFormat = "62" + nomorFormat.substring(1)
+
+                        val pesanTeks = "Halo,\n\nIni adalah catatan BMI pribadi saya:\n\n$hasilBmi\n\n- Dikirim dari BMI Pro"
+                        val pesanTerEncode = URLEncoder.encode(pesanTeks, "UTF-8")
+
+                        val waIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$nomorFormat&text=$pesanTerEncode"))
+                        try {
+                            context.startActivity(waIntent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "WhatsApp tidak terinstal.", Toast.LENGTH_SHORT).show()
+                        }
+                        tampilkanDialogBagikan = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
+                ) { Text("WhatsApp") }
+            },
+            dismissButton = {
+                // TOMBOL EMAIL
+                Button(
+                    onClick = {
+                        val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                            // Perhatikan: Kita langsung menaruh Email pengguna di dalam mailto:
+                            data = Uri.parse("mailto:$emailTersimpan")
+                            putExtra(Intent.EXTRA_SUBJECT, "Catatan Pribadi: Hasil Cek BMI")
+                            putExtra(Intent.EXTRA_TEXT, "Halo,\n\nIni adalah catatan BMI pribadi saya:\n\n$hasilBmi\n\n- Dikirim dari BMI Pro")
+                        }
+                        try {
+                            context.startActivity(Intent.createChooser(emailIntent, "Kirim via Email"))
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Tidak ada aplikasi Email.", Toast.LENGTH_SHORT).show()
+                        }
+                        tampilkanDialogBagikan = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF44336))
+                ) { Text("Email") }
+            }
+        )
     }
 }
 
 @Composable
 fun LayarTips(onKembali: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("💡 Tips Kesehatan", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 24.dp))
-        Text(
-            "1. Jaga Hidrasi:\nMinum air minimal 2-3 liter per hari.\n\n2. Pola Makan:\nPerbanyak protein dan serat alami, kurangi gula buatan.\n\n3. Olahraga Teratur:\nMinimal 30 menit per hari, 3-5 kali seminggu.\n\n4. Istirahat Cukup:\nTidur 7-8 jam sangat penting untuk metabolisme tubuh.",
-            fontSize = 16.sp,
-            lineHeight = 24.sp,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-        Button(onClick = onKembali, modifier = Modifier.fillMaxWidth()) {
-            Text("Kembali ke Kalkulator")
-        }
+        Text("1. Jaga Hidrasi:\nMinum air minimal 2-3 liter per hari.\n\n2. Pola Makan:\nPerbanyak protein dan serat alami, kurangi gula buatan.\n\n3. Olahraga Teratur:\nMinimal 30 menit per hari, 3-5 kali seminggu.\n\n4. Istirahat Cukup:\nTidur 7-8 jam sangat penting.", fontSize = 16.sp, lineHeight = 24.sp, modifier = Modifier.padding(bottom = 32.dp))
+        Button(onClick = onKembali, modifier = Modifier.fillMaxWidth()) { Text("Kembali ke Kalkulator") }
     }
 }
